@@ -1,8 +1,28 @@
 {inputs, ...}: {
   perSystem = {system, ...}: let
-    pkgs = import inputs.nixpkgs {inherit system;};
+    pkgs = import inputs.nixpkgs {
+      inherit system;
+      overlays = [
+        inputs.rust-overlay.overlays.default
+      ];
+    };
+
     inherit (pkgs) lib;
-    craneLib = inputs.crane.mkLib pkgs;
+
+    toolchain =
+      pkgs.rust-bin.selectLatestNightlyWith
+      (toolchain:
+        toolchain.default.override {
+          extensions = [
+            "rust-src"
+            "clippy"
+            "rust-analyzer"
+            "llvm-tools-preview"
+            "rustfmt"
+          ];
+        });
+
+    craneLib = (inputs.crane.mkLib pkgs).overrideToolchain toolchain;
     workspaceRoot = ../../.;
     src = craneLib.cleanCargoSource workspaceRoot;
 
@@ -39,6 +59,7 @@
       inherit
         pkgs
         lib
+        toolchain
         craneLib
         src
         commonArgs

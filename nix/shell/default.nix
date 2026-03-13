@@ -13,9 +13,14 @@
         alejandra
         statix
         deadnix
+        config.treefmt.build.wrapper
 
         # Rust
         cargo-hakari
+        cargo-nextest
+        cargo-llvm-cov
+        cargo-llvm-lines
+        cargo-expand
 
         # Miscellaneous
         git-bug
