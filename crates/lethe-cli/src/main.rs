@@ -13,7 +13,10 @@ fn main() -> color_eyre::eyre::Result<()> {
     let root = cli.dir.or_else(|| env::current_dir().ok()).unwrap();
     let res = match cli.command {
         cli::Command::New { body, aliases } => Note::new(root, body, aliases.unwrap_or_default()),
-        cli::Command::Read { id } => Note::read(Identifier::from_str(&id)?, root),
+        cli::Command::Read { id } => {
+            let trimmed = id.trim();
+            Note::read(Identifier::from_str(&trimmed)?, root)
+        }
     }?;
 
     println!("Note: {res:?}");

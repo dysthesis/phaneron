@@ -14,7 +14,7 @@ pub struct Cli {
 pub enum Command {
     New {
         body: String,
-        #[arg(short, long)]
+        #[arg(short, long, value_delimiter = ',')]
         aliases: Option<Vec<String>>,
     },
     Read {
