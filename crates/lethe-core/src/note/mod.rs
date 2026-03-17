@@ -63,6 +63,7 @@ impl Note {
             ctime,
             mtime,
             aliases,
+            extra: toml::Table::new(),
         };
         let meta_serialised =
             toml::to_string(&meta).map_err(|error| NoteError::MetadataSerialiseError {
@@ -127,7 +128,16 @@ pub struct Metadata {
     /// Aliases to optionally refer to this note by
     // TODO: See if we can work with borrows here
     aliases: Vec<String>,
-    // TODO: Store other key-value pairs
+    /// Arbitrary, user-defined metadata stored at the top level.
+    #[serde(flatten, default, skip_serializing_if = "toml::Table::is_empty")]
+    extra: toml::Table,
+}
+
+impl Metadata {
+    /// Get the note's arbitrary metadata.
+    pub fn extra(&self) -> &toml::Table {
+        &self.extra
+    }
 }
 
 #[cfg(test)]
@@ -135,6 +145,52 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use tempfile::tempdir;
+
+    const RESERVED_KEYS: &[&str] = &["id", "ctime", "mtime", "aliases"];
+
+    fn is_reserved_key(key: &str) -> bool {
+        RESERVED_KEYS.iter().any(|reserved| reserved == &key)
+    }
+
+    fn non_reserved_key() -> impl Strategy<Value = String> {
+        "[a-zA-Z][a-zA-Z0-9_-]{0,15}"
+            .prop_filter("non-reserved key", |key| !is_reserved_key(key))
+    }
+
+    fn toml_value_strategy() -> impl Strategy<Value = toml::Value> {
+        let leaf = prop_oneof![
+            any::<bool>().prop_map(toml::Value::Boolean),
+            any::<i64>().prop_map(toml::Value::Integer),
+            any::<f64>()
+                .prop_filter("finite float", |value| value.is_finite())
+                .prop_map(toml::Value::Float),
+            "[a-zA-Z0-9 _-]{0,32}".prop_map(toml::Value::String),
+        ];
+
+        leaf.prop_recursive(3, 32, 4, |inner| {
+            prop_oneof![
+                proptest::collection::vec(inner.clone(), 0..5).prop_map(toml::Value::Array),
+                proptest::collection::btree_map(non_reserved_key(), inner, 0..5).prop_map(|map| {
+                    let mut table = toml::Table::new();
+                    for (key, value) in map {
+                        table.insert(key, value);
+                    }
+                    toml::Value::Table(table)
+                }),
+            ]
+        })
+    }
+
+    fn extra_table_strategy() -> impl Strategy<Value = toml::Table> {
+        proptest::collection::btree_map(non_reserved_key(), toml_value_strategy(), 0..8)
+            .prop_map(|map| {
+                let mut table = toml::Table::new();
+                for (key, value) in map {
+                    table.insert(key, value);
+                }
+                table
+            })
+    }
 
     proptest! {
         #[test]
@@ -155,6 +211,71 @@ mod tests {
 
             prop_assert_eq!(reread.body, body);
             prop_assert_eq!(reread.meta.aliases, aliases);
+        }
+
+        #[test]
+        fn metadata_round_trips_with_extra(
+            aliases in proptest::collection::vec(
+                proptest::collection::vec(any::<char>(), 0..64)
+                    .prop_map(|chars| chars.into_iter().collect::<String>()),
+                0..8,
+            ),
+            extra in extra_table_strategy(),
+        ) {
+            let id = Identifier::new();
+            let ctime = Utc::now();
+            let mtime = ctime;
+            let meta = Metadata {
+                id: id.clone(),
+                ctime,
+                mtime,
+                aliases: aliases.clone(),
+                extra: extra.clone(),
+            };
+            let serialised = toml::to_string(&meta).unwrap();
+            let parsed: Metadata = toml::from_str(&serialised).unwrap();
+
+            prop_assert_eq!(parsed.id.to_string(), id.to_string());
+            prop_assert_eq!(parsed.ctime, ctime);
+            prop_assert_eq!(parsed.mtime, mtime);
+            prop_assert_eq!(parsed.aliases, aliases);
+            prop_assert_eq!(parsed.extra, extra);
+        }
+
+        #[test]
+        fn note_read_preserves_extra(
+            body in proptest::collection::vec(any::<char>(), 0..256)
+                .prop_map(|chars| chars.into_iter().collect::<String>()),
+            aliases in proptest::collection::vec(
+                proptest::collection::vec(any::<char>(), 0..64)
+                    .prop_map(|chars| chars.into_iter().collect::<String>()),
+                0..8,
+            ),
+            extra in extra_table_strategy(),
+        ) {
+            let dir = tempdir().unwrap();
+            let root = dir.path().to_path_buf();
+            let id = Identifier::new();
+            let dir_path = root.join(id.to_string());
+            fs::create_dir_all(&dir_path).unwrap();
+            let ctime = Utc::now();
+            let mtime = ctime;
+            let meta = Metadata {
+                id: id.clone(),
+                ctime,
+                mtime,
+                aliases: aliases.clone(),
+                extra: extra.clone(),
+            };
+            let meta_serialised = toml::to_string(&meta).unwrap();
+            fs::write(dir_path.join("meta.toml"), meta_serialised).unwrap();
+            fs::write(dir_path.join("body.md"), body.clone()).unwrap();
+
+            let reread = Note::read(id, root).unwrap();
+
+            prop_assert_eq!(reread.body, body);
+            prop_assert_eq!(reread.meta.aliases, aliases);
+            prop_assert_eq!(reread.meta.extra, extra);
         }
     }
 }
