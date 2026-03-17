@@ -153,8 +153,7 @@ mod tests {
     }
 
     fn non_reserved_key() -> impl Strategy<Value = String> {
-        "[a-zA-Z][a-zA-Z0-9_-]{0,15}"
-            .prop_filter("non-reserved key", |key| !is_reserved_key(key))
+        "[a-zA-Z][a-zA-Z0-9_-]{0,15}".prop_filter("non-reserved key", |key| !is_reserved_key(key))
     }
 
     fn toml_value_strategy() -> impl Strategy<Value = toml::Value> {
@@ -182,14 +181,15 @@ mod tests {
     }
 
     fn extra_table_strategy() -> impl Strategy<Value = toml::Table> {
-        proptest::collection::btree_map(non_reserved_key(), toml_value_strategy(), 0..8)
-            .prop_map(|map| {
+        proptest::collection::btree_map(non_reserved_key(), toml_value_strategy(), 0..8).prop_map(
+            |map| {
                 let mut table = toml::Table::new();
                 for (key, value) in map {
                     table.insert(key, value);
                 }
                 table
-            })
+            },
+        )
     }
 
     proptest! {
