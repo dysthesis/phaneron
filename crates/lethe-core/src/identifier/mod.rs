@@ -46,3 +46,30 @@ impl FromStr for Identifier {
         Ok(Identifier(inner))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        // Identifiers should round-trip through string formatting + parsing.
+        fn identifier_round_trips_through_string(bytes in any::<[u8; 16]>()) {
+            let uuid = Uuid::from_bytes(bytes);
+            let id = Identifier(uuid);
+            let parsed = Identifier::from_str(&id.to_string()).unwrap();
+
+            prop_assert_eq!(parsed.to_string(), id.to_string());
+        }
+
+        #[test]
+        // Invalid strings must fail to parse as identifiers.
+        fn identifier_rejects_invalid_strings(s in ".{0,64}") {
+            prop_assume!(Uuid::from_str(&s).is_err());
+            let parsed = Identifier::from_str(&s);
+
+            prop_assert!(parsed.is_err());
+        }
+    }
+}
